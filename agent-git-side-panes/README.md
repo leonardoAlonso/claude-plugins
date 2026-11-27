@@ -10,7 +10,7 @@ A Claude Code mod that adds one pane at the right of the chat with two stacked s
 Option 1, from the marketplace in this repo:
 
     /plugin marketplace add leonardoAlonso/claude-plugins
-    /plugin install side-panes@claude-plugins
+    /plugin install side-panes@leonardo-plugins
 
 Option 2, from a local clone:
 

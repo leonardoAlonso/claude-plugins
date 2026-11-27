@@ -11,6 +11,6 @@ Personal Claude Code plugins and mods.
 From Claude Code (needs access to this repo; it is private, so your GitHub SSH auth must work):
 
     /plugin marketplace add leonardoAlonso/claude-plugins
-    /plugin install side-panes@claude-plugins
+    /plugin install side-panes@leonardo-plugins
 
 Then run `/side-panes`. See the plugin's own README for details.

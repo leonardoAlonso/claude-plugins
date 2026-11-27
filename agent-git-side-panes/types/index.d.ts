@@ -11,10 +11,11 @@ export type AgentSnap = {
   endTime?: number
 }
 export type GitFile = { code: string; path: string; add: number; del: number }
-export type GitInfo = { isRepo: boolean; branch: string; files: GitFile[] }
+export type GitInfo = { isRepo: boolean; branch: string; root: string; files: GitFile[] }
+export type SessionFile = { path: string; edits: number; last: number }
 
 declare module 'claude-code' {
   interface PluginState {
-    'side-panes': { agents: Shaped<AgentSnap[]>; git: Shaped<GitInfo> }
+    'side-panes': { agents: Shaped<AgentSnap[]>; git: Shaped<GitInfo>; files: Shaped<SessionFile[]> }
   }
 }

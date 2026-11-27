@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { AgentSnap, GitFile, GitInfo } from '../types'
+import type { AgentSnap, GitFile, GitInfo, SessionFile } from '../types'
 
 const PANE = 'side-panes'
 const MAX_AGENTS = 6
@@ -13,9 +13,13 @@ const agents = atom({ plugin: 'side-panes', key: 'agents' } as const, [], {
 })
 const gitAtom = atom(
   { plugin: 'side-panes', key: 'git' } as const,
-  { isRepo: true, branch: '', files: [] },
-  { shape: 'git-1' },
+  { isRepo: true, branch: '', root: '', files: [] },
+  { shape: 'git-2' },
 )
+const filesAtom = atom({ plugin: 'side-panes', key: 'files' } as const, [], {
+  shape: 'files-1',
+})
+const FILE_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']
 
 const fmtTok = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n))
 const fmtTime = (ms: number) => {
@@ -28,24 +32,13 @@ const bar = (pct: number, width = 10) => {
 }
 const clip = (s: string, w: number) => (s.length > w ? '…' + s.slice(s.length - w + 1) : s)
 
-export const parseGit = (status: string, numstat: string): GitInfo => {
-  const lines = status.split('\n').filter(Boolean)
-  const head = lines.find(l => l.startsWith('## '))
-  const branch = head ? head.slice(3).replace(/\.\.\..*?(\[|$)/, (m, g) => (g === '[' ? '[' : '')) : ''
-  const stats = new Map<string, { add: number; del: number }>()
-  for (const l of numstat.split('\n').filter(Boolean)) {
-    const [a, d, ...p] = l.split('\t')
-    stats.set(p.join('\t'), { add: Number(a) || 0, del: Number(d) || 0 })
+export const parseNumstat = (out: string) => {
+  const m = new Map<string, { add: number; del: number }>()
+  for (const l of out.split('\n').filter(Boolean)) {
+    const [x, y, ...p] = l.split('\t')
+    m.set(p.join('\t'), { add: Number(x) || 0, del: Number(y) || 0 })
   }
-  const files: GitFile[] = lines
-    .filter(l => !l.startsWith('## '))
-    .map(l => {
-      const code = l.slice(0, 2).trim() || '?'
-      const path = l.slice(3).split(' -> ').pop() ?? ''
-      const s = stats.get(path)
-      return { code: code === '??' ? '?' : code[0]!, path, add: s?.add ?? 0, del: s?.del ?? 0 }
-    })
-  return { isRepo: true, branch, files }
+  return m
 }
 
 const open = async ($: any, asked: boolean) => {
@@ -89,27 +82,53 @@ const refreshAgents = async ($: any) => {
 
 const refreshGit = async ($: any) => {
   const repo = await $.session.repo()
+  const mine: SessionFile[] = await read($, filesAtom)
+  const set = (info: GitInfo) =>
+    update($, gitAtom, (old: GitInfo) => (JSON.stringify(old) === JSON.stringify(info) ? old : info))
   if (!repo) {
-    await update($, gitAtom, () => ({ isRepo: false, branch: '', files: [] }))
+    await set({ isRepo: false, branch: '', root: '', files: [] })
     return
   }
-  const run = (argv: string[]) => $.process.run(argv, { cwd: repo.root })
+  const root: string = repo.root
+  const run = (argv: string[]) => $.process.run(argv, { cwd: root })
+  const br = await run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
+  const branch = br.exitCode === 0 ? br.stdout.trim() : 'no commits'
+  const rel = (f: string) => (f.startsWith(root + '/') ? f.slice(root.length + 1) : f)
+  const inRepo = mine.filter(f => f.path.startsWith(root + '/'))
+  if (inRepo.length === 0) {
+    await set({ isRepo: true, branch, root, files: [] })
+    return
+  }
+  const rels = inRepo.map(f => rel(f.path))
   const [st, ns] = await Promise.all([
-    run(['git', 'status', '--porcelain=v1', '-b']),
-    run(['git', 'diff', '--numstat', 'HEAD']),
+    run(['git', 'status', '--porcelain=v1', '--', ...rels]),
+    run(['git', 'diff', '--numstat', 'HEAD', '--', ...rels]),
   ])
-  const info = parseGit(st.stdout, ns.exitCode === 0 ? ns.stdout : '')
-  await update($, gitAtom, (old: GitInfo) =>
-    JSON.stringify(old) === JSON.stringify(info) ? old : info,
-  )
+  const stats = parseNumstat(ns.exitCode === 0 ? ns.stdout : '')
+  const codes = new Map<string, string>()
+  for (const l of st.stdout.split('\n').filter(Boolean)) {
+    const c = l.slice(0, 2).trim()
+    codes.set(l.slice(3).split(' -> ').pop() ?? '', c === '??' ? '?' : (c[0] ?? '·'))
+  }
+  const files: GitFile[] = []
+  for (const f of inRepo) {
+    const r = rel(f.path)
+    const code = codes.get(r) ?? '·'
+    let s = stats.get(r)
+    if (!s && code === '?') {
+      const u = await run(['git', 'diff', '--no-index', '--numstat', '--', '/dev/null', r])
+      s = parseNumstat(u.stdout).values().next().value
+    }
+    files.push({ code, path: f.path, add: s?.add ?? 0, del: s?.del ?? 0 })
+  }
+  await set({ isRepo: true, branch, root, files })
 }
-
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'side-panes',
-      description: 'Open the subagents and git changes panes',
+      description: 'Open the subagents and session files pane',
     })
     void open($, false)
     $.clock.every(2000, () => void refreshAgents($).catch(() => {}))
@@ -132,6 +151,15 @@ export const register: Register = on => {
 
   on('tool.call', async ($, e, next) => {
     const out = await next(e)
+    const path = (e as any).file_path ?? (e as any).notebook_path
+    if (FILE_TOOLS.includes((e as any).tool) && typeof path === 'string') {
+      const now = Date.now()
+      await update($, filesAtom, (list: SessionFile[]) => {
+        const prev = list.find(f => f.path === path)
+        const rest = list.filter(f => f.path !== path)
+        return [{ path, edits: (prev?.edits ?? 0) + 1, last: now }, ...rest].slice(0, 200)
+      })
+    }
     void refreshGit($).catch(() => {})
     return out
   })
@@ -140,13 +168,17 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const list = await read($, agents)
     const g = await read($, gitAtom)
+    const mine = await read($, filesAtom)
     const running = list.filter(a => !DONE.includes(a.status)).length
     const now = Date.now()
     const cols = e.props?.bodyColumns ?? 40
     const w = Math.max(10, cols - 12)
     const shown = list.slice(0, MAX_AGENTS)
-    const add = g.files.reduce((n, f) => n + f.add, 0)
-    const del = g.files.reduce((n, f) => n + f.del, 0)
+    const stat = new Map(g.files.map(f => [f.path, f]))
+    const rows = mine.map(f => ({ ...f, ...(stat.get(f.path) ?? { code: '·', add: 0, del: 0 }) }))
+    const relOf = (f: string) => (g.root && f.startsWith(g.root + '/') ? f.slice(g.root.length + 1) : f)
+    const add = rows.reduce((n, f) => n + f.add, 0)
+    const del = rows.reduce((n, f) => n + f.del, 0)
     const colorOf = (c: string) =>
       c === 'M' ? 'yellow' : c === 'A' || c === '?' ? 'green' : c === 'D' ? 'red' : 'cyan'
     return (
@@ -187,12 +219,11 @@ export const register: Register = on => {
           </Box>
         )}
         <Box flexDirection="column" marginTop={1}>
-          <Text bold>{clip(`GIT · ${g.isRepo ? g.branch || 'detached' : 'no repository'}`, cols)}</Text>
-          {!g.isRepo && <Text dimColor>Not a git repository.</Text>}
-          {g.isRepo && g.files.length === 0 && <Text dimColor>Working tree clean.</Text>}
-          {g.files.slice(0, MAX_FILES).map(f => (
+          <Text bold>{clip(`FILES · ${g.isRepo ? g.branch || 'detached' : 'no repository'}`, cols)}</Text>
+          {rows.length === 0 && <Text dimColor>No files changed this session.</Text>}
+          {rows.slice(0, MAX_FILES).map(f => (
             <Text>
-              <Text color={colorOf(f.code)}>{f.code}</Text> {clip(f.path, w)}
+              <Text color={colorOf(f.code)}>{f.code}</Text> {clip(relOf(f.path), w)}
               {(f.add || f.del) > 0 && (
                 <Text dimColor>
                   {' '}+{f.add} −{f.del}
@@ -200,11 +231,16 @@ export const register: Register = on => {
               )}
             </Text>
           ))}
-          {g.files.length > MAX_FILES && <Text dimColor>+{g.files.length - MAX_FILES} more</Text>}
-          {g.files.length > 0 && (
+          {rows.length > MAX_FILES && <Text dimColor>+{rows.length - MAX_FILES} more</Text>}
+          {rows.length > 0 && (
             <Text dimColor>
-              {g.files.length} files · +{add} −{del}
+              {rows.length} files · +{add} −{del}
             </Text>
+          )}
+          {rows.length > 0 && (
+            <Box marginTop={1}>
+              <Button onPress={() => update($, filesAtom, () => [])}>clear files</Button>
+            </Box>
           )}
         </Box>
       </Box>

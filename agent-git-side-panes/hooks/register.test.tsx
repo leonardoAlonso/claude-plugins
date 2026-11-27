@@ -30,13 +30,16 @@ const agent = (i: number, over: Record<string, unknown> = {}) => ({
   startTime: Date.now() - 5000,
   ...over,
 })
-const file = (i: number, code = 'M') => ({ code, path: `src/f${i}.ts`, add: i, del: 1 })
+const file = (i: number, code = 'M') => ({ code, path: `/r/src/f${i}.ts`, add: i, del: 1 })
+const mine = (n: number) => Array.from({ length: n }, (_, i) => ({ path: `/r/src/f${i + 1}.ts`, edits: 1, last: i }))
+const repo = (branch: string, files: unknown[] = []) => ({ isRepo: true, branch, root: '/r', files })
 
-const seed = (on: any, a: unknown[] | undefined, g: unknown | undefined) =>
+const seed = (on: any, a: unknown[] | undefined, g: unknown | undefined, f?: unknown[]) =>
   on('state.get', (_: any, e: any) => {
     const k = e?.key
     if (k === 'agents' && a) return { value: { value: { shape: 'agents-1', value: a }, version: 1 } }
-    if (k === 'git' && g) return { value: { value: { shape: 'git-1', value: g }, version: 1 } }
+    if (k === 'git' && g) return { value: { value: { shape: 'git-2', value: g }, version: 1 } }
+    if (k === 'files' && f) return { value: { value: { shape: 'files-1', value: f }, version: 1 } }
     return { value: { value: undefined, version: 0 } }
   })
 
@@ -69,13 +72,13 @@ test('empty state', async ($, on) => {
   await each($, async ui => {
     await has(ui, /No subagents yet\./)
     await has(ui, /SUBAGENTS · 0(\/0| running · 0 total)/)
-    await has(ui, /GIT/)
-    await has(ui, /Working tree clean\./)
+    await has(ui, /FILES/)
+    await has(ui, /No files changed this session\./)
   })
 })
 
 test('running agent at 50% context', async ($, on) => {
-  seed(on, [agent(1)], { isRepo: true, branch: 'main', files: [] })
+  seed(on, [agent(1)], repo('main'))
   await each($, async ui => {
     await has(ui, /SUBAGENTS · 1(\/1| running · 1 total)/)
     await has(ui, /👾 general-purpose/)
@@ -85,7 +88,7 @@ test('running agent at 50% context', async ($, on) => {
     await hasNot(ui, /more/)
   })
   const ui = await $.ui.mount({ ...PANE(40), surface: 'desktop' })
-  await has(ui, /GIT · main/)
+  await has(ui, /FILES · main/)
   expect(await ui.find({ type: 'Button' })).toBeFalsy()
   await ui.unmount()
 })
@@ -123,7 +126,8 @@ test('long description and path stay clipped at narrow width', async ($, on) => 
   seed(
     on,
     [agent(1, { description: long })],
-    { isRepo: true, branch: 'b', files: [{ code: 'M', path: 'a/'.repeat(40) + 'file.ts', add: 1, del: 1 }] },
+    repo('b', [{ code: 'M', path: '/r/' + 'a/'.repeat(40) + 'file.ts', add: 1, del: 1 }]),
+    [{ path: '/r/' + 'a/'.repeat(40) + 'file.ts', edits: 1, last: 1 }],
   )
   await each($, async (ui, cols) => {
     const d = await ui.find({ type: 'Text', text: /^…?x+$/ })
@@ -134,9 +138,9 @@ test('long description and path stay clipped at narrow width', async ($, on) => 
 })
 
 test('git repo with 12 files', async ($, on) => {
-  seed(on, undefined, { isRepo: true, branch: 'feat/x', files: Array.from({ length: 12 }, (_, i) => file(i + 1)) })
+  seed(on, undefined, repo('feat/x', Array.from({ length: 12 }, (_, i) => file(i + 1))), mine(12))
   await each($, async ui => {
-    await has(ui, /GIT · feat\/x/)
+    await has(ui, /FILES · feat\/x/)
     await has(ui, /^\+2 more$/)
     await has(ui, /12 files · \+78 −12/)
     await hasNot(ui, /f11\.ts/)
@@ -144,18 +148,16 @@ test('git repo with 12 files', async ($, on) => {
 })
 
 test('clean tree', async ($, on) => {
-  seed(on, undefined, { isRepo: true, branch: 'main', files: [] })
+  seed(on, undefined, repo('main'), [])
   await each($, async ui => {
-    await has(ui, /Working tree clean\./)
+    await has(ui, /No files changed this session\./)
     await hasNot(ui, /files ·/)
   })
 })
 
 test('not a repository', async ($, on) => {
-  seed(on, undefined, { isRepo: false, branch: '', files: [] })
+  seed(on, undefined, { isRepo: false, branch: '', root: '', files: [] })
   await each($, async ui => {
-    await has(ui, /GIT · no repository/)
-    await has(ui, /Not a git repository\./)
-    await hasNot(ui, /Working tree clean/)
+    await has(ui, /FILES · no repository/)
   })
 })

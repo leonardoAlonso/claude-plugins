@@ -3,7 +3,7 @@
 A Claude Code mod that adds one pane at the right of the chat with two stacked sections:
 
 - **Subagents**: model, effort and context usage (bar, %, tokens) for every subagent launched in the session. Rows stay after the subagent finishes (👾 running, 💾 finished, 💀 failed); `clear finished` removes them.
-- **Git**: branch and changed files with status letter and `+added −removed` counts, refreshed every few seconds and after each tool call.
+- **Files**: the files Claude changed in this session (via Edit, Write, MultiEdit and NotebookEdit), with the git branch and per-file status and `+added −removed` counts. Files changed through Bash or outside Claude are not listed. `clear files` empties the list.
 
 ## Install
 

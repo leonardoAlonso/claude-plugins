@@ -4,7 +4,7 @@ Personal Claude Code plugins and mods.
 
 | Folder | What it is |
 | --- | --- |
-| [`agent-git-side-panes`](./agent-git-side-panes) | A pane at the right of the chat: subagents (context, model, effort, kept after they finish) above git changes |
+| [`agent-git-side-panes`](./agent-git-side-panes) | A pane at the right of the chat: subagents (context, model, effort, kept after they finish) above the files changed in the session |
 
 ## Install
 

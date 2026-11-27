@@ -1,0 +1,11 @@
+{
+  "name": "claude-plugins",
+  "owner": { "name": "Leonardo Alonso" },
+  "plugins": [
+    {
+      "name": "side-panes",
+      "source": "./agent-git-side-panes",
+      "description": "Right-side pane with subagent info (context, model, effort; kept after they finish) and git changes"
+    }
+  ]
+}

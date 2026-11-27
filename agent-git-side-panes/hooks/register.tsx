@@ -42,7 +42,7 @@ export const parseNumstat = (out: string) => {
 }
 
 const open = async ($: any, asked: boolean) => {
-  await $.ui.open({ id: PANE, title: 'Agents & Git' })
+  await $.ui.open({ id: PANE, title: 'Agents & Git', backgroundColor: 'transparent' })
   return asked
 }
 

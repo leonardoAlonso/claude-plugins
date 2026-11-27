@@ -1,0 +1,1 @@
+{ "name": "side-panes", "version": "0.1.0", "description": "Right-side panes: subagents (context, model, effort; kept after they finish) and git changes", "types": "./types/index.d.ts" }
